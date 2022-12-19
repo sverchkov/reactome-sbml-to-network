@@ -53,16 +53,28 @@ def parse_sbml(file_path):
         )[0]: {
             'reactants': get_species_ids(reaction.find('./sbml:listOfReactants', NS)),
             'products': get_species_ids(reaction.find('./sbml:listOfProducts', NS)),
-            'modifiers': get_species_ids(reaction.find('./sbml:listOfModifiers', NS))
+            'modifiers': get_species_ids(reaction.find('./sbml:listOfModifiers', NS)),
+            'GO terms': [
+                term
+                for bag in reaction.findall('./sbml:annotation/rdf:RDF/rdf:Description/bqbiol:is', NS)
+                for term in get_rdf_bag_resource_ids(bag, 'GO')
+            ]
         }
         for reaction in reactions
     }
+
+    entity_groups = {'reactants', 'products', 'modifiers'}
 
     # Characterize species
     species_mapping = {}
     complexes = {}
 
-    species_set = {x for reaction in reactions_parsed.values() for group in reaction.values() for x in group}
+    species_set = {
+        x
+        for reaction in reactions_parsed.values()
+        for group_type, group in reaction.items() if group_type in entity_groups
+        for x in group
+    }
 
     for species_id in species_set:
         species_element = root.find(f"./sbml:model/sbml:listOfSpecies/sbml:species[@id='{species_id}']", NS)
@@ -101,7 +113,7 @@ def parse_sbml(file_path):
         [
             {'entity': entity, 'relation': relation, 'target': reaction_id}
             for reaction_id, reaction in reactions_parsed.items()
-            for relation, entities in reaction.items()
+            for relation, entities in reaction.items() if relation in entity_groups
             for entity in entities
         ]
     )
