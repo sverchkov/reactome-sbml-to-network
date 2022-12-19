@@ -47,7 +47,10 @@ def parse_sbml(file_path):
     reactions = root.findall('./sbml:model/sbml:listOfReactions/sbml:reaction', NS)
 
     reactions_parsed = {
-        reaction.attrib['id']: {
+        get_rdf_bag_resource_ids(
+            reaction.find('./sbml:annotation/rdf:RDF/rdf:Description/bqbiol:is', NS),
+            'reactome'
+        )[0]: {
             'reactants': get_species_ids(reaction.find('./sbml:listOfReactants', NS)),
             'products': get_species_ids(reaction.find('./sbml:listOfProducts', NS)),
             'modifiers': get_species_ids(reaction.find('./sbml:listOfModifiers', NS))
