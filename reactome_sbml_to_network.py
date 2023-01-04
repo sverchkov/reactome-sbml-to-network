@@ -41,24 +41,21 @@ class SBMLParser:
         self.id_prefix = id_prefix
 
 
-    def parse_collection(self, dir_path, nodes_csv = None, edges_csv = None):
-        """Parses a collection (a directory of SBML files) into nodes and edges dataframes and optionally saves them to CSVs"""
+    def parse_collection(self, dir_path):
+        """Parses a collection (a directory of SBML files) into nodes, edges, and go term dataframes"""
 
         # Parse individual files
         dfs = [self.parse_sbml(fpath) for fpath in Path(dir_path).iterdir()]
 
         # Unzip results
-        node_dfs, edge_dfs = zip(*dfs)
+        node_dfs, edge_dfs, go_dfs = zip(*dfs)
 
         # Concatenate and remove duplicates
         nodes_df = pd.concat(node_dfs, ignore_index=True).drop_duplicates(ignore_index=True)
         edges_df = pd.concat(edge_dfs, ignore_index=True).drop_duplicates(ignore_index=True)
+        go_df = pd.concat(go_dfs, ignore_index=True).drop_duplicates(ignore_index=True)
 
-        # Optionally save
-        if nodes_csv: nodes_df.to_csv(nodes_csv, index=None)
-        if edges_csv: edges_df.to_csv(edges_csv, index=None)
-
-        return nodes_df, edges_df
+        return nodes_df, edges_df, go_df
 
 
     def parse_sbml(self, file_path):
@@ -88,6 +85,16 @@ class SBMLParser:
 
         entity_groups = {'reactants', 'products', 'modifiers'}
 
+        # Compose GO term table
+        go_df = pd.DataFrame.from_records([
+            {
+                'reaction': reaction,
+                'go_term': term
+            }
+            for reaction, item in reactions_parsed.items()
+            for term in item['GO terms']
+        ])
+
         # Characterize species
         species_mapping = {}
         complexes = {}
@@ -107,7 +114,7 @@ class SBMLParser:
                 the_is_element = species_element.find('./sbml:annotation/rdf:RDF/rdf:Description/bqbiol:is', self.ns)
                 reactome_id = self.get_rdf_bag_resource_ids(the_is_element, 'reactome')[0]
                 uniprot_ids = self.get_rdf_bag_resource_ids(the_is_element, 'uniprot')
-                chebi_ids = self.get_rdf_bag_resource_ids(the_is_element, 'chebi')
+                chebi_ids = self.get_rdf_bag_resource_ids(the_is_element, 'CHEBI')
                 has_part_element = species_element.find('./sbml:annotation/rdf:RDF/rdf:Description/bqbiol:hasPart', self.ns)
                 if has_part_element: # This is a complex
                     species_mapping[species_id] = {'id': reactome_id, 'type': 'complex'}
@@ -134,7 +141,7 @@ class SBMLParser:
         # Phosphorylation info
         if self.annotate_phosphorylation:
             phospho_map = {
-                reaction: self.phospho_terms.isdisjoint(item['GO terms'])
+                reaction: not self.phospho_terms.isdisjoint(item['GO terms'])
                 for reaction, item in reactions_parsed.items()
             }
             reactions_df['phosphorylation'] = reactions_df['id'].map(phospho_map)
@@ -178,7 +185,7 @@ class SBMLParser:
         # Compose edge table
         edges_df = pd.concat([reaction_edges[['source', 'relation', 'target']], complex_edges], ignore_index=True)
 
-        return nodes_df, edges_df
+        return nodes_df, edges_df, go_df
 
 
     def get_species_ids(self, species_ref_element_container):
@@ -221,10 +228,11 @@ if __name__ == '__main__':
         description='A python tool for extracting network structure from the SBML files provided by Reactome.'
     )
 
-    parser.add_argument('sbml_dir')
-    parser.add_argument('nodes_csv')
-    parser.add_argument('edges_csv')
-    parser.add_argument('-g', '--go_obo', required=False)
+    parser.add_argument('-i', '--sbml_dir', required=True)
+    parser.add_argument('-n', '--nodes_csv', required=False)
+    parser.add_argument('-e', '--edges_csv', required=False)
+    parser.add_argument('-g', '--go_csv', required=False)
+    parser.add_argument('-o', '--go_obo', required=False)
     parser.add_argument('-v', '--verbose', action='store_true')
 
     args = parser.parse_args()
@@ -236,4 +244,9 @@ if __name__ == '__main__':
     else:
         fparser = SBMLParser(annotate_phosphorylation=False)
 
-    fparser.parse_collection(args.sbml_dir, args.nodes_csv, args.edges_csv)
+    nodes_df, edges_df, go_df = fparser.parse_collection(args.sbml_dir)
+
+    # Optionally save
+    if args.nodes_csv: nodes_df.to_csv(args.nodes_csv, index=None)
+    if args.edges_csv: edges_df.to_csv(args.edges_csv, index=None)
+    if args.go_csv: go_df.to_csv(args.go_csv, index=None)
