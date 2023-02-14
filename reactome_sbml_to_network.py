@@ -73,7 +73,11 @@ class SBMLParser:
             )[0]: {
                 'reactants': self.get_species_ids(reaction.find('./sbml:listOfReactants', self.ns)),
                 'products': self.get_species_ids(reaction.find('./sbml:listOfProducts', self.ns)),
-                'modifiers': self.get_species_ids(reaction.find('./sbml:listOfModifiers', self.ns)),
+                'modifiers':
+                    self.get_species_ids(
+                        reaction.find('./sbml:listOfModifiers', self.ns),
+                        element_tag='modifierSpeciesReference'
+                    ),
                 'GO terms': [
                     term
                     for bag in reaction.findall('./sbml:annotation/rdf:RDF/rdf:Description/bqbiol:is', self.ns)
@@ -97,7 +101,7 @@ class SBMLParser:
 
         # Characterize species
         species_mapping = {}
-        complexes = {}
+        complexes = {} # TODO: rename complexes to groups
 
         species_set = {
             x
@@ -116,7 +120,9 @@ class SBMLParser:
                 uniprot_ids = self.get_rdf_bag_resource_ids(the_is_element, 'uniprot')
                 chebi_ids = self.get_rdf_bag_resource_ids(the_is_element, 'CHEBI')
                 has_part_element = species_element.find('./sbml:annotation/rdf:RDF/rdf:Description/bqbiol:hasPart', self.ns)
-                if has_part_element: # This is a complex
+                if has_part_element: # This is a complex or set
+                    # TODO: parse the description string in the first ./notes/p element, grab type from
+                    # "Derived from a Reactome {type}" pattern.
                     species_mapping[species_id] = {'id': reactome_id, 'type': 'complex'}
                     complexes[reactome_id] = self.get_rdf_bag_resource_ids(has_part_element, 'uniprot')
                 elif len(uniprot_ids) == 1: # This is a protein
@@ -188,13 +194,18 @@ class SBMLParser:
         return nodes_df, edges_df, go_df
 
 
-    def get_species_ids(self, species_ref_element_container):
+    def get_species_ids(
+        self,
+        species_ref_element_container,
+        attribute_name='species',
+        element_tag='speciedReference'
+    ):
         """Gets the species ids from the reaction members lists."""
 
         if species_ref_element_container:
             return [
-                element.attrib['species']
-                for element in species_ref_element_container.findall('./sbml:speciesReference', self.ns)
+                element.attrib[attribute_name]
+                for element in species_ref_element_container.findall(f'./sbml:{element_tag}', self.ns)
             ]
         else:
             return []
